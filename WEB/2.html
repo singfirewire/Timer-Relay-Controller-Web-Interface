@@ -99,7 +99,7 @@
 
     <script>
         const mqttServer = 'broker.hivemq.com';
-        const mqttPort = 8884; // WebSocket Secure port
+        const mqttPort = 8884; // TLS WebSocket port
         const deviceId = 'web_client_' + Math.random().toString(16).substr(2, 8);
         
         // MQTT Topics
@@ -111,7 +111,11 @@
 
         // Connect to MQTT broker
         const client = mqtt.connect(`wss://${mqttServer}:${mqttPort}`, {
-            clientId: deviceId
+            clientId: deviceId,
+            keepalive: 60,
+            clean: true,
+            reconnectPeriod: 1000,
+            connectTimeout: 30 * 1000
         });
 
         client.on('connect', () => {
