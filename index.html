@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Timer Relay Controller</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mqtt/4.3.7/mqtt.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/dayjs/1.10.4/dayjs.min.js"></script>
+    <style>
+        :root {
+            --primary: #4CAF50;
+            --danger: #f44336;
+            --info: #2196F3;
+            --warning: #ff9800;
+        }
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f5f5f5;
+            padding: 1rem;
+            max-width: 600px;
+            margin: 0 auto;
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 1.5rem;
+        }
+        .version {
+            color: #666;
+            font-size: 0.9rem;
+            margin-top: 0.5rem;
+        }
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 1rem;
+            margin-bottom: 1rem;
+        }
+        .card {
+            background: white;
+            border-radius: 12px;
+            padding: 1.5rem;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .card-title {
+            font-size: 1.5rem;
+            margin-bottom: 1rem;
+            text-align: center;
+        }
+        .timer {
+            font-size: 2.5rem;
+            text-align: center;
+            margin: 1rem 0;
+            font-weight: bold;
+        }
+        .timer.warning {
+            color: var(--warning);
+        }
+        .timer.danger {
+            color: var(--danger);
+        }
+        .btn {
+            width: 100%;
+            padding: 1rem;
+            border: none;
+            border-radius: 8px;
+            font-size: 1rem;
+            font-weight: bold;
+            cursor: pointer;
+            margin-bottom: 0.5rem;
+            transition: opacity 0.2s;
+        }
+        .btn:active {
+            opacity: 0.8;
+        }
+        .btn-on {
+            background: var(--primary);
+            color: white;
+        }
+        .btn-off {
+            background: var(--danger);
+            color: white;
+        }
+        .btn-reset {
+            background: var(--info);
+            color: white;
+        }
+        .status {
+            text-align: center;
+            padding: 1rem;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .status.connected {
+            color: var(--primary);
+        }
+        .status.disconnected {
+            color: var(--danger);
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>Timer Relay Controller</h1>
+        <div class="version">v1.2.1</div>
+    </div>
+    
+    <div class="grid">
+        <div class="card">
+            <div class="card-title">Relay 1</div>
+            <div id="timer1" class="timer">40:00</div>
+            <button class="btn btn-on" onclick="controlRelay(1, 'ON')">เปิด</button>
+            <button class="btn btn-off" onclick="controlRelay(1, 'OFF')">ปิด</button>
+            <button class="btn btn-reset" onclick="controlRelay(1, 'RESET')">รีเซ็ตเวลา</button>
+        </div>
+        
+        <div class="card">
+            <div class="card-title">Relay 2</div>
+            <div id="timer2" class="timer">40:00</div>
+            <button class="btn btn-on" onclick="controlRelay(2, 'ON')">เปิด</button>
+            <button class="btn btn-off" onclick="controlRelay(2, 'OFF')">ปิด</button>
+            <button class="btn btn-reset" onclick="controlRelay(2, 'RESET')">รีเซ็ตเวลา</button>
+        </div>
+    </div>
+
+    <div id="wifiStatus" class="status">WiFi: กำลังเชื่อมต่อ...</div>
+
+    <script>
+        const mqttClient = mqtt.connect('wss://broker.hivemq.com:8884');
+        const topics = {
+            status: 'home/relay/status',
+            relay1: 'home/relay/relay1/control',
+            relay2: 'home/relay/relay2/control'
+        };
+
+        mqttClient.on('connect', () => {
+            console.log('Connected to MQTT broker');
+            mqttClient.subscribe(topics.status);
+        });
+
+        mqttClient.on('message', (topic, message) => {
+            if (topic === topics.status) {
+                updateStatus(JSON.parse(message.toString()));
+            }
+        });
+
+        function updateStatus(data) {
+            // Update WiFi status
+            const wifiStatus = document.getElementById('wifiStatus');
+            wifiStatus.textContent = `WiFi: ${data.wifi_connected ? 'เชื่อมต่อแล้ว' : 'ขาดการเชื่อมต่อ'} พอร์มิชชี่ RSSI: ${data.wifi_rssi} dBm`;
+            wifiStatus.className = `status ${data.wifi_connected ? 'connected' : 'disconnected'}`;
+
+            // Update timers
+            updateTimer('timer1', data.relay1);
+            updateTimer('timer2', data.relay2);
+        }
+
+        function updateTimer(elementId, relayData) {
+            const timerElement = document.getElementById(elementId);
+            if (relayData.active && relayData.remaining !== undefined) {
+                const minutes = Math.floor(relayData.remaining / 60);
+                const seconds = relayData.remaining % 60;
+                const timeString = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+                timerElement.textContent = timeString;
+                
+                // Add warning classes
+                if (relayData.remaining <= 30) {
+                    timerElement.className = 'timer danger';
+                } else if (relayData.remaining <= 180) {
+                    timerElement.className = 'timer warning';
+                } else {
+                    timerElement.className = 'timer';
+                }
+            } else {
+                timerElement.textContent = '40:00';
+                timerElement.className = 'timer';
+            }
+        }
+
+        function controlRelay(relay, action) {
+            const topic = relay === 1 ? topics.relay1 : topics.relay2;
+            const message = JSON.stringify({ action });
+            mqttClient.publish(topic, message);
+        }
+    </script>
+</body>
+</html>
