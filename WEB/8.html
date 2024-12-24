@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ESP32 Relay Control Panel</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mqtt/4.3.7/mqtt.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background-color: #f0f0f0;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background-color: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+        }
+        .relay-card {
+            border: 1px solid #ddd;
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 5px;
+            background-color: #fff;
+        }
+        .status {
+            margin: 10px 0;
+            padding: 10px;
+            background-color: #f8f9fa;
+            border-radius: 5px;
+        }
+        button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            margin: 5px;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        button.off {
+            background-color: #dc3545;
+        }
+        button.off:hover {
+            background-color: #c82333;
+        }
+        button.reset {
+            background-color: #ffc107;
+            color: black;
+        }
+        button.reset:hover {
+            background-color: #e0a800;
+        }
+        .connection-status {
+            padding: 10px;
+            margin-bottom: 20px;
+            border-radius: 5px;
+            text-align: center;
+        }
+        .connected {
+            background-color: #d4edda;
+            color: #155724;
+        }
+        .disconnected {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>ESP32 Relay Control Panel</h1>
+        <div id="connectionStatus" class="connection-status disconnected">
+            กำลังเชื่อมต่อ MQTT...
+        </div>
+        
+        <div class="relay-card">
+            <h2>รีเลย์ 1</h2>
+            <div class="status" id="relay1Status">สถานะ: รอการเชื่อมต่อ</div>
+            <button onclick="controlRelay(1, 'ON')">เปิด</button>
+            <button class="off" onclick="controlRelay(1, 'OFF')">ปิด</button>
+            <button class="reset" onclick="controlRelay(1, 'RESET')">รีเซ็ตเวลา</button>
+        </div>
+
+        <div class="relay-card">
+            <h2>รีเลย์ 2</h2>
+            <div class="status" id="relay2Status">สถานะ: รอการเชื่อมต่อ</div>
+            <button onclick="controlRelay(2, 'ON')">เปิด</button>
+            <button class="off" onclick="controlRelay(2, 'OFF')">ปิด</button>
+            <button class="reset" onclick="controlRelay(2, 'RESET')">รีเซ็ตเวลา</button>
+        </div>
+    </div>
+
+    <script>
+        console.log('Starting MQTT connection...');
+        
+        const mqttServer = 'test.mosquitto.org';
+        const mqttPort = 8081;  // Secure WebSocket port for mosquitto
+        const deviceId = 'web_client_' + Math.random().toString(16).substr(2, 8);
+        
+        // MQTT Topics - เพิ่ม prefix เพื่อป้องกันการชนกับ client อื่น
+        const topicPrefix = 'iot/timer-relay/';
+        const topics = {
+            relay1Control: topicPrefix + 'relay1/control',
+            relay2Control: topicPrefix + 'relay2/control',
+            status: topicPrefix + 'status',
+            command: topicPrefix + 'command'
+        };
+
+        console.log(`Connecting to: wss://${mqttServer}:${mqttPort}`);
+        
+        const client = mqtt.connect(`wss://${mqttServer}:${mqttPort}`, {
+            clientId: deviceId,
+            clean: true,
+            reconnectPeriod: 3000,
+            connectTimeout: 30 * 1000
+        });
+
+        client.on('connect', () => {
+            console.log('Connected to MQTT broker');
+            document.getElementById('connectionStatus').className = 'connection-status connected';
+            document.getElementById('connectionStatus').innerHTML = 'เชื่อมต่อ MQTT สำเร็จ';
+            
+            // Subscribe to topics
+            client.subscribe(topics.status);
+            
+            // Request initial status
+            requestStatus();
+        });
+
+        client.on('message', (topic, message) => {
+            console.log('Received:', topic, message.toString());
+            if (topic === topics.status) {
+                try {
+                    updateStatus(JSON.parse(message.toString()));
+                } catch (e) {
+                    console.error('Error parsing status:', e);
+                }
+            }
+        });
+
+        client.on('error', (error) => {
+            console.error('MQTT Error:', error);
+            document.getElementById('connectionStatus').className = 'connection-status disconnected';
+            document.getElementById('connectionStatus').innerHTML = 'การเชื่อมต่อผิดพลาด: ' + error.message;
+        });
+
+        client.on('offline', () => {
+            console.log('MQTT Connection offline');
+            document.getElementById('connectionStatus').className = 'connection-status disconnected';
+            document.getElementById('connectionStatus').innerHTML = 'ขาดการเชื่อมต่อ';
+        });
+
+        client.on('reconnect', () => {
+            console.log('Trying to reconnect...');
+            document.getElementById('connectionStatus').innerHTML = 'กำลังพยายามเชื่อมต่อใหม่...';
+        });
+
+        function controlRelay(relayNumber, action) {
+            const topic = relayNumber === 1 ? topics.relay1Control : topics.relay2Control;
+            const message = JSON.stringify({ action: action });
+            console.log('Publishing:', topic, message);
+            client.publish(topic, message);
+        }
+
+        function requestStatus() {
+            console.log('Requesting status update');
+            client.publish(topics.command, JSON.stringify({
+                command: 'status'
+            }));
+        }
+
+        function updateStatus(status) {
+            // Update Relay 1 status
+            let relay1Text = 'สถานะ: ';
+            if (status.relay1.active) {
+                const minutes = Math.floor(status.relay1.remaining / 60);
+                const seconds = status.relay1.remaining % 60;
+                relay1Text += `เปิดอยู่ (เหลือเวลา ${minutes}:${seconds.toString().padStart(2, '0')})`;
+            } else {
+                relay1Text += 'ปิด';
+            }
+            document.getElementById('relay1Status').innerHTML = relay1Text;
+
+            // Update Relay 2 status
+            let relay2Text = 'สถานะ: ';
+            if (status.relay2.active) {
+                const minutes = Math.floor(status.relay2.remaining / 60);
+                const seconds = status.relay2.remaining % 60;
+                relay2Text += `เปิดอยู่ (เหลือเวลา ${minutes}:${seconds.toString().padStart(2, '0')})`;
+            } else {
+                relay2Text += 'ปิด';
+            }
+            document.getElementById('relay2Status').innerHTML = relay2Text;
+        }
+
+        // Request status update every 1 second
+        setInterval(requestStatus, 1000);
+    </script>
+</body>
+</html>
