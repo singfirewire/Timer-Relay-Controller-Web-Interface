@@ -132,7 +132,7 @@
     <div id="wifiStatus" class="status">WiFi: กำลังเชื่อมต่อ...</div>
 
     <script>
-        const mqttClient = mqtt.connect('wss://broker.hivemq.com:8884');
+        const mqttClient = mqtt.connect('wss://broker.hivemq.com:8883');
         const topics = {
             status: 'home/relay/status',
             relay1: 'home/relay/relay1/control',
